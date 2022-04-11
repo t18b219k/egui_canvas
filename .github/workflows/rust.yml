@@ -34,7 +34,7 @@ jobs:
     - name: install wasm-bingen
       run: cargo install wasm-bindgen-cli --force
     - name: Build
-      run: cargo build --package egui_example --verbose --release --target wasm32-unknown-unknown 
+      run: cargo build --example demo --release --target wasm32-unknown-unknown
     - name: bindgen
       run: wasm-bindgen ./target/wasm32-unknown-unknown/release/examples/demo.wasm --out-dir docs --target no-modules --no-typescript
     - name: wasm-strip
