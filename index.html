@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>winit IME support demo </title>
+    <style>
+        .centered {
+            margin-right: auto;
+            margin-left: auto;
+            display: block;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #000000;
+            font-size: 24px;
+            font-family: Ubuntu-Light, Helvetica, sans-serif;
+            text-align: center;
+        }
+
+        /* ---------------------------------------------- */
+        /* Loading animation from https://loading.io/css/ */
+        .lds-dual-ring {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+        }
+
+        .lds-dual-ring:after {
+            content: " ";
+            display: block;
+            width: 24px;
+            height: 24px;
+            margin: 0px;
+            border-radius: 50%;
+            border: 3px solid #fff;
+            border-color: #fff transparent #fff transparent;
+            animation: lds-dual-ring 1.2s linear infinite;
+        }
+
+        @keyframes lds-dual-ring {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="centered" id="center_text">
+    <p style="font-size:16px">
+        Loading…
+    </p>
+    <div class="lds-dual-ring"></div>
+</div>
+
+<script src="egui_example.js"></script>
+
+<p>
+    This page demonstrate winit on web support IME.
+</p>
+
+<script>
+    // We'll defer our execution until the wasm is ready to go.
+    // Here we tell bindgen the path to the wasm file so it can start
+    // initialization and return to us a promise when it's done.
+    wasm_bindgen("./demo_bg.wasm")
+        .then(on_wasm_loaded)
+        .catch(on_wasm_error);
+    function on_wasm_loaded() {
+        console.log("loaded wasm, starting egui app…");
+        wasm_bindgen.start();
+        console.log("egui app started.");
+        document.getElementById("center_text").remove();
+    }
+    function on_wasm_error(error) {
+        console.error("Failed to start egui: " + error);
+        document.getElementById("center_text").innerHTML = `
+                <p>
+                    An error occurred loading egui
+                </p>
+                <p style="font-family:Courier New">
+                    ${error}
+                </p>
+                <p style="font-size:14px">
+                    Make sure you use a modern browser with WebGL and WASM enabled.
+                </p>`;
+    }
+</script>
+</body>
+
+</html>
