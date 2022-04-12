@@ -10,6 +10,7 @@ mod tests {
 pub struct Renderer {
     context: web_sys::CanvasRenderingContext2d,
     textures: HashMap<TextureId, CanvasRenderingContext2d>,
+    dpr:f64,
 }
 
 use epaint::{
@@ -27,21 +28,22 @@ impl Renderer {
         let doc = web_sys::window().and_then(|win| win.document());
         let canvas = doc?
             .get_element_by_id(canvas_id)?
-            .dyn_into::<HtmlCanvasElement>();
+            .dyn_into::<HtmlCanvasElement>().ok()?;
 
         let context = canvas
-            .ok()?
             .get_context("2d")
             .ok()??
             .dyn_into::<CanvasRenderingContext2d>()
             .ok()?;
         context.set_image_smoothing_enabled(false);
         let dpr =web_sys::window().map(|win|{win.device_pixel_ratio()}).unwrap_or(1.0);
-        context.scale(dpr,dpr);
-
+        let rect = canvas.get_bounding_client_rect();
+        canvas.set_width((rect.width()*dpr)as u32);
+        canvas.set_height((rect.height()*dpr)as u32);
         Some(Self {
             context,
             textures: HashMap::new(),
+            dpr
         })
     }
     pub fn new_with_canvas(canvas: &HtmlCanvasElement) -> Option<Self> {
@@ -50,10 +52,14 @@ impl Renderer {
             .ok()??
             .dyn_into::<CanvasRenderingContext2d>()
             .ok()?;
-        context.set_image_smoothing_enabled(false);
+        let dpr =web_sys::window().map(|win|{win.device_pixel_ratio()}).unwrap_or(1.0);
+        let rect = canvas.get_bounding_client_rect();
+        canvas.set_width((rect.width()*dpr)as u32);
+        canvas.set_height((rect.height()*dpr)as u32);
         Some(Self {
             context,
             textures: Default::default(),
+            dpr
         })
     }
     fn paint_shape(&mut self, shape: &epaint::Shape) {
@@ -432,12 +438,14 @@ impl Renderer {
         for (id, delta) in set {
             self.set_texture(id, delta);
         }
+        self.context.scale(self.dpr,self.dpr).unwrap();
         for shape in shapes {
             self.paint(shape);
         }
         for id in free {
             self.free_texture(id);
         }
+        self.context.scale(1.0/self.dpr,1.0/self.dpr).unwrap();
     }
     pub fn clear(&self, color: &Color32) {
         let canvas = self.context.canvas().unwrap();
@@ -502,6 +510,12 @@ impl Renderer {
     }
 }
 /// convert egui image into HtmlImageElement.
+///
+/// using data url.
+/// * png encode
+/// * base64 encode
+/// * set this url to image.src
+///
 fn upload_texture(image: epaint::ImageData) -> HtmlImageElement {
     let size = match &image {
         ImageData::Color(color) => color.size,
