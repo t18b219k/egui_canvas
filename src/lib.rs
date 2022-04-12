@@ -28,12 +28,17 @@ impl Renderer {
         let canvas = doc?
             .get_element_by_id(canvas_id)?
             .dyn_into::<HtmlCanvasElement>();
+
         let context = canvas
             .ok()?
             .get_context("2d")
             .ok()??
             .dyn_into::<CanvasRenderingContext2d>()
             .ok()?;
+        context.set_image_smoothing_enabled(false);
+        let dpr =web_sys::window().map(|win|{win.device_pixel_ratio()}).unwrap_or(1.0);
+        context.scale(dpr,dpr);
+
         Some(Self {
             context,
             textures: HashMap::new(),
@@ -45,6 +50,7 @@ impl Renderer {
             .ok()??
             .dyn_into::<CanvasRenderingContext2d>()
             .ok()?;
+        context.set_image_smoothing_enabled(false);
         Some(Self {
             context,
             textures: Default::default(),
@@ -251,7 +257,7 @@ impl Renderer {
                         let Glyph {
                             chr: _,
                             pos,
-                            size: _,
+                            size:_ ,
                             uv_rect,
                             section_index: _,
                         } = glyph;
