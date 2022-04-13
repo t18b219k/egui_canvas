@@ -10,12 +10,29 @@ mod tests {
 pub struct Renderer {
     context: web_sys::CanvasRenderingContext2d,
     textures: HashMap<TextureId, CanvasRenderingContext2d>,
-    dpr:f64,
+    dpr: f64,
+    rendering_mode: TextRenderingMode,
+}
+
+#[derive(Eq, PartialEq, Copy, Clone)]
+pub enum TextRenderingMode {
+    /// blit egui rasterized font.
+    ///
+    ///  limitation.
+    ///  * font color not changeable.
+    ///  * zooming up/down collapse text.
+    EGUI,
+    /// using canvas api.
+    ///
+    /// limitation.
+    /// * custom font not supported.
+    Browser,
 }
 
 use epaint::{
-    CircleShape, Color32, CubicBezierShape, ImageDelta, Mesh, PathShape, QuadraticBezierShape,
-    RectShape, Shape, Stroke, TextShape,text::Glyph,TextureId,ImageData,textures::TexturesDelta
+    text::Glyph, textures::TexturesDelta, CircleShape, Color32, CubicBezierShape, ImageData,
+    ImageDelta, Mesh, PathShape, QuadraticBezierShape, Rect, RectShape, Shape, Stroke, TextShape,
+    TextureId,
 };
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -24,11 +41,16 @@ use wasm_bindgen::__rt::IntoJsResult;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement};
 
 impl Renderer {
+    /// set text rendering mode
+    pub fn set_rendering_mode(&mut self, render_mode: TextRenderingMode) {
+        self.rendering_mode = render_mode;
+    }
     pub fn new(canvas_id: &str) -> Option<Self> {
         let doc = web_sys::window().and_then(|win| win.document());
         let canvas = doc?
             .get_element_by_id(canvas_id)?
-            .dyn_into::<HtmlCanvasElement>().ok()?;
+            .dyn_into::<HtmlCanvasElement>()
+            .ok()?;
 
         let context = canvas
             .get_context("2d")
@@ -36,14 +58,17 @@ impl Renderer {
             .dyn_into::<CanvasRenderingContext2d>()
             .ok()?;
         context.set_image_smoothing_enabled(false);
-        let dpr =web_sys::window().map(|win|{win.device_pixel_ratio()}).unwrap_or(1.0);
+        let dpr = web_sys::window()
+            .map(|win| win.device_pixel_ratio())
+            .unwrap_or(1.0);
         let rect = canvas.get_bounding_client_rect();
-        canvas.set_width((rect.width()*dpr)as u32);
-        canvas.set_height((rect.height()*dpr)as u32);
+        canvas.set_width((rect.width() * dpr) as u32);
+        canvas.set_height((rect.height() * dpr) as u32);
         Some(Self {
             context,
             textures: HashMap::new(),
-            dpr
+            dpr,
+            rendering_mode: TextRenderingMode::EGUI,
         })
     }
     pub fn new_with_canvas(canvas: &HtmlCanvasElement) -> Option<Self> {
@@ -52,14 +77,17 @@ impl Renderer {
             .ok()??
             .dyn_into::<CanvasRenderingContext2d>()
             .ok()?;
-        let dpr =web_sys::window().map(|win|{win.device_pixel_ratio()}).unwrap_or(1.0);
+        let dpr = web_sys::window()
+            .map(|win| win.device_pixel_ratio())
+            .unwrap_or(1.0);
         let rect = canvas.get_bounding_client_rect();
-        canvas.set_width((rect.width()*dpr)as u32);
-        canvas.set_height((rect.height()*dpr)as u32);
+        canvas.set_width((rect.width() * dpr) as u32);
+        canvas.set_height((rect.height() * dpr) as u32);
         Some(Self {
             context,
             textures: Default::default(),
-            dpr
+            dpr,
+            rendering_mode: TextRenderingMode::EGUI,
         })
     }
     fn paint_shape(&mut self, shape: &epaint::Shape) {
@@ -92,6 +120,7 @@ impl Renderer {
                     color.b(),
                     color.a()
                 );
+                self.context.begin_path();
                 self.context.set_line_width(*width as f64);
                 self.context
                     .arc(
@@ -146,7 +175,7 @@ impl Renderer {
                 );
                 self.context
                     .set_stroke_style(&color_text.into_js_result().unwrap());
-                if points.len() > 1 {
+                if !points.is_empty() {
                     self.context.move_to(points[0].x as f64, points[0].y as f64);
                 }
                 for point in points.iter().skip(1) {
@@ -263,7 +292,7 @@ impl Renderer {
                         let Glyph {
                             chr: _,
                             pos,
-                            size:_ ,
+                            size: _,
                             uv_rect,
                             section_index: _,
                         } = glyph;
@@ -291,20 +320,20 @@ impl Renderer {
                             dh,
                         ).unwrap();
                     }
-                    if *underline != Stroke::none(){
-                        let lb= row_rect.left_bottom();
+                    if *underline != Stroke::none() {
+                        let lb = row_rect.left_bottom();
                         let rb = row_rect.right_bottom();
-                        let line_segment= Shape::LineSegment { points: [lb,rb], stroke: *underline };
+                        let line_segment = Shape::LineSegment {
+                            points: [lb, rb],
+                            stroke: *underline,
+                        };
                         self.paint_shape(&line_segment);
                     }
                 }
             }
+
             Shape::Mesh(mesh) => {
-                let Mesh {
-                    indices,
-                    vertices,
-                    texture_id: _,
-                } = mesh;
+                let Mesh{ indices, vertices, texture_id } = mesh;
                 for triangle in indices.chunks(3) {
                     self.context.begin_path();
                     let vert1 = vertices[triangle[0] as usize];
@@ -316,7 +345,6 @@ impl Renderer {
                     self.context.close_path();
                     self.context.fill();
                 }
-
                 log::warn!("mesh is not supported.")
             }
             Shape::QuadraticBezier(qb) => {
@@ -438,14 +466,25 @@ impl Renderer {
         for (id, delta) in set {
             self.set_texture(id, delta);
         }
-        self.context.scale(self.dpr,self.dpr).unwrap();
+        let dpr = web_sys::window()
+            .map(|win| win.device_pixel_ratio())
+            .unwrap_or(1.0);
+        if (dpr - self.dpr).abs() > 0.01 {
+            self.dpr = dpr;
+            if let Some(canvas) = self.context.canvas() {
+                let rect = canvas.get_bounding_client_rect();
+                canvas.set_width((rect.width() * dpr) as u32);
+                canvas.set_height((rect.height() * dpr) as u32);
+            }
+        }
+        self.context.scale(self.dpr, self.dpr).unwrap();
         for shape in shapes {
             self.paint(shape);
         }
         for id in free {
             self.free_texture(id);
         }
-        self.context.scale(1.0/self.dpr,1.0/self.dpr).unwrap();
+        self.context.scale(1.0 / self.dpr, 1.0 / self.dpr).unwrap();
     }
     pub fn clear(&self, color: &Color32) {
         let canvas = self.context.canvas().unwrap();

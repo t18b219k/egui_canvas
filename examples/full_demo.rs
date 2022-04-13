@@ -1,6 +1,6 @@
 use instant::Instant;
 
-use egui::{Color32, FontData, FullOutput};
+use egui::{Color32, FontData, FontDefinitions, FullOutput};
 use egui_winit_platform::{Platform, PlatformDescriptor};
 use epi::*;
 use winit::dpi::LogicalPosition;
@@ -24,26 +24,18 @@ fn run(event_loop: EventLoop<()>, window: Window) {
     let size = window.inner_size();
 
     let repaint_signal = std::sync::Arc::new(RepaintSignalMock);
-    let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        "Noto".to_owned(),
-        FontData::from_static(include_bytes!("./NotoSansJP-Regular.otf")),
-    );
-    fonts.families.iter_mut().for_each(|(_, fonts)| {
-        fonts.insert(0, "Noto".to_owned());
-    });
 
     // We use the egui_winit_platform crate as the platform.
     let mut platform = Platform::new(PlatformDescriptor {
         physical_width: size.width as u32,
         physical_height: size.height as u32,
         scale_factor: window.scale_factor(),
-        font_definitions: fonts,
+        font_definitions: FontDefinitions::default(),
         style: Default::default(),
     });
 
     // Display the demo application that ships with egui.
-    let mut demo_app = crate::keyboard_debugger::KeyboardDebugger::new();
+    let mut demo_app = egui_demo_lib::WrapApp::default();
 
     let start_time = Instant::now();
     let mut previous_frame_time = None;
@@ -106,14 +98,8 @@ fn run(event_loop: EventLoop<()>, window: Window) {
                     scale_factor,
                     new_inner_size,
                 } => {}
-                event => match event {
-                    winit::event::WindowEvent::ReceivedCharacter(_)
-                    | winit::event::WindowEvent::KeyboardInput { .. }
-                    | winit::event::WindowEvent::IME(_) => {
-                        demo_app.feed(&event);
-                    }
-                    _ => (),
-                },
+
+                _ => {}
             },
             _ => (),
         }
@@ -147,57 +133,5 @@ mod wasm {
         console_log::init_with_level(Level::Trace).expect("failed to init logger");
 
         crate::main()
-    }
-}
-mod keyboard_debugger {
-    use egui::Context;
-    use epi::Frame;
-
-    pub struct KeyboardDebugger {
-        text_buffer: String,
-        event_buffer: Vec<String>,
-    }
-
-    impl KeyboardDebugger {
-        pub fn new() -> KeyboardDebugger {
-            Self {
-                text_buffer: String::new(),
-                event_buffer: vec![],
-            }
-        }
-        pub fn feed(&mut self, event: &winit::event::WindowEvent) {
-            self.event_buffer.push(format!("{:?}", event));
-        }
-        pub fn clear(&mut self) {
-            self.event_buffer.clear()
-        }
-    }
-    impl epi::App for KeyboardDebugger {
-        fn update(&mut self, ctx: &Context, frame: &Frame) {
-            egui::Window::new("Keyboard debugger").show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("please input here");
-                        ui.text_edit_singleline(&mut self.text_buffer);
-                        if ui.button("clear logs").clicked() {
-                            self.clear()
-                        }
-                    });
-                    let scroll = egui::containers::ScrollArea::both();
-                    scroll.stick_to_bottom().show(ui, |ui| {
-                        ui.vertical(|ui| {
-                            self.event_buffer.iter().for_each(|log| {
-                                ui.label(log);
-                            });
-                        })
-                    });
-                });
-            });
-            frame.request_repaint()
-        }
-
-        fn name(&self) -> &str {
-            "Keyboard debugger"
-        }
     }
 }

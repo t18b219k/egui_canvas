@@ -23,6 +23,7 @@ console_log ="0.2"
 console_error_panic_hook="0.1"
 wasm-bindgen-futures="0.4"
 epi="0.17"
+egui_demo_lib = "0.17.0"
 [workspace]
 members= ["run-wasm"]
 
