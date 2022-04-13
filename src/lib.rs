@@ -23,15 +23,18 @@ pub enum TextRenderingMode {
     ///  * zooming up/down collapse text.
     EGUI,
     /// using canvas api.
-    ///
+    /// benefit
+    /// * full color emoji support.
+    /// * startup faster.
     /// limitation.
     /// * custom font not supported.
+    ///
     Browser,
 }
 
 use epaint::{
     text::Glyph, textures::TexturesDelta, CircleShape, Color32, CubicBezierShape, ImageData,
-    ImageDelta, Mesh, PathShape, QuadraticBezierShape, Rect, RectShape, Shape, Stroke, TextShape,
+    ImageDelta, Mesh, PathShape, QuadraticBezierShape,  RectShape, Shape, Stroke, TextShape,
     TextureId,
 };
 use std::collections::HashMap;
@@ -281,44 +284,74 @@ impl Renderer {
                     pos,
                     galley,
                     underline,
-                    override_text_color: _,
+                    override_text_color,
                     angle: _,
                 } = text;
                 let rows = &galley.rows;
+
                 let origin = pos;
                 for row in rows {
                     let row_rect = row.rect;
-                    for glyph in row.glyphs.iter() {
-                        let Glyph {
-                            chr: _,
-                            pos,
-                            size: _,
-                            uv_rect,
-                            section_index: _,
-                        } = glyph;
-                        let offset = uv_rect.offset;
-                        let source_top_left = uv_rect.min;
-                        let sx = source_top_left[0] as f64;
-                        let sy = source_top_left[1] as f64;
+                    match self.rendering_mode {
+                        TextRenderingMode::EGUI => {
+                            for glyph in row.glyphs.iter() {
+                                let Glyph {
+                                    chr: _,
+                                    pos,
+                                    size: _,
+                                    uv_rect,
+                                    section_index: _,
+                                } = glyph;
+                                let offset = uv_rect.offset;
+                                let source_top_left = uv_rect.min;
+                                let sx = source_top_left[0] as f64;
+                                let sy = source_top_left[1] as f64;
 
-                        let source_bottom_right = uv_rect.max;
-                        let sw = source_bottom_right[0] as f64 - sx;
-                        let sh = source_bottom_right[1] as f64 - sy;
-                        let dx = (pos.x + offset.x + origin.x) as f64;
-                        let dy = (pos.y + offset.y + origin.y) as f64;
-                        let dw = uv_rect.size.x as f64;
-                        let dh = uv_rect.size.y as f64;
-                        self.context.draw_image_with_html_canvas_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
-                            &self.textures.get(&TextureId::Managed(0)).unwrap().canvas().unwrap(),
-                            sx,
-                            sy,
-                            sw,
-                            sh,
-                            dx,
-                            dy,
-                            dw,
-                            dh,
-                        ).unwrap();
+                                let source_bottom_right = uv_rect.max;
+                                let sw = source_bottom_right[0] as f64 - sx;
+                                let sh = source_bottom_right[1] as f64 - sy;
+                                let dx = (pos.x + offset.x + origin.x) as f64;
+                                let dy = (pos.y + offset.y + origin.y) as f64;
+                                let dw = uv_rect.size.x as f64;
+                                let dh = uv_rect.size.y as f64;
+                                self.context.draw_image_with_html_canvas_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
+                                    &self.textures.get(&TextureId::Managed(0)).unwrap().canvas().unwrap(),
+                                    sx,
+                                    sy,
+                                    sw,
+                                    sh,
+                                    dx,
+                                    dy,
+                                    dw,
+                                    dh,
+                                ).unwrap();
+                            }
+                        }
+
+                        TextRenderingMode::Browser => {
+                            let row_text: String =
+                                row.glyphs.iter().map(|glyph| glyph.chr).collect();
+                            let fill_style =
+                                override_text_color.unwrap_or(Color32::from_white_alpha(0xff));
+                            let fill_style = format!(
+                                "#{:02x}{:02x}{:02x}{:02x}",
+                                fill_style.r(),
+                                fill_style.g(),
+                                fill_style.b(),
+                                fill_style.a()
+                            )
+                            .into_js_result()
+                            .unwrap();
+                            let height=row_rect.height();
+                            self.context.set_font(&format!("{}px serif",height));
+                            self.context.set_fill_style(&fill_style);
+                            self.context.fill_text_with_max_width(
+                                &row_text,
+                                (row_rect.min.x + origin.x) as f64,
+                                (row_rect.max.y + origin.y) as f64,
+                                row_rect.width() as f64
+                            ).unwrap();
+                        }
                     }
                     if *underline != Stroke::none() {
                         let lb = row_rect.left_bottom();
@@ -333,7 +366,11 @@ impl Renderer {
             }
 
             Shape::Mesh(mesh) => {
-                let Mesh{ indices, vertices, texture_id } = mesh;
+                let Mesh {
+                    indices,
+                    vertices,
+                    texture_id:_,
+                } = mesh;
                 for triangle in indices.chunks(3) {
                     self.context.begin_path();
                     let vert1 = vertices[triangle[0] as usize];
@@ -505,40 +542,46 @@ impl Renderer {
 
     pub fn set_texture(&mut self, id: TextureId, image_delta: ImageDelta) -> Option<()> {
         let ImageDelta { image, pos } = image_delta;
-        let (w, h) = (image.width(), image.height());
-        let sub_image = upload_texture(image);
-        // get or create canvas
-        let ctx = self.textures.entry(id).or_insert_with(|| {
-            let canvas: HtmlCanvasElement = web_sys::window()
-                .unwrap()
-                .document()
-                .unwrap()
-                .create_element("canvas")
-                .unwrap()
-                .unchecked_into();
-            canvas.set_width(w as u32);
-            canvas.set_height(h as u32);
-            canvas
-                .get_context("2d")
-                .unwrap()
-                .unwrap()
-                .dyn_into::<CanvasRenderingContext2d>()
-                .unwrap()
-        });
-        let pos = pos.unwrap_or([0, 0]);
+        if !(id == TextureId::default() && self.rendering_mode == TextRenderingMode::Browser) {
+            let (w, h) = (image.width(), image.height());
+            let sub_image = upload_texture(image);
+            // get or create canvas
+            let ctx = self.textures.entry(id).or_insert_with(|| {
+                let canvas: HtmlCanvasElement = web_sys::window()
+                    .unwrap()
+                    .document()
+                    .unwrap()
+                    .create_element("canvas")
+                    .unwrap()
+                    .unchecked_into();
+                canvas.set_width(w as u32);
+                canvas.set_height(h as u32);
+                canvas
+                    .get_context("2d")
+                    .unwrap()
+                    .unwrap()
+                    .dyn_into::<CanvasRenderingContext2d>()
+                    .unwrap()
+            });
+            let pos = pos.unwrap_or([0, 0]);
 
-        {
-            let ctx_c = ctx.clone();
-            let sub_image_c = sub_image.clone();
-            let onload_handler = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
-                ctx_c
-                    .draw_image_with_html_image_element(&sub_image_c, pos[0] as f64, pos[1] as f64)
-                    .unwrap();
-            })
-                as Box<dyn FnMut()>);
+            {
+                let ctx_c = ctx.clone();
+                let sub_image_c = sub_image.clone();
+                let onload_handler = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+                    ctx_c
+                        .draw_image_with_html_image_element(
+                            &sub_image_c,
+                            pos[0] as f64,
+                            pos[1] as f64,
+                        )
+                        .unwrap();
+                })
+                    as Box<dyn FnMut()>);
 
-            sub_image.set_onload(Some(onload_handler.as_ref().unchecked_ref()));
-            onload_handler.forget();
+                sub_image.set_onload(Some(onload_handler.as_ref().unchecked_ref()));
+                onload_handler.forget();
+            }
         }
 
         Some(())

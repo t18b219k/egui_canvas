@@ -1,6 +1,6 @@
 use instant::Instant;
 
-use egui::{Color32, FontData, FontDefinitions, FullOutput};
+use egui::{Color32, FontDefinitions, FullOutput};
 use egui_winit_platform::{Platform, PlatformDescriptor};
 use epi::*;
 use winit::dpi::LogicalPosition;
@@ -20,7 +20,7 @@ fn run(event_loop: EventLoop<()>, window: Window) {
     let canvas = window.canvas();
 
     let mut renderer = egui_canvas::Renderer::new_with_canvas(&canvas).unwrap();
-
+    renderer.set_rendering_mode(egui_canvas::TextRenderingMode::Browser);
     let size = window.inner_size();
 
     let repaint_signal = std::sync::Arc::new(RepaintSignalMock);
@@ -94,11 +94,6 @@ fn run(event_loop: EventLoop<()>, window: Window) {
                 winit::event::WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
                 }
-                winit::event::WindowEvent::ScaleFactorChanged {
-                    scale_factor,
-                    new_inner_size,
-                } => {}
-
                 _ => {}
             },
             _ => (),
